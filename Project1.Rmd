@@ -1,0 +1,97 @@
+---
+title: "Project1"
+author: "Aruna"
+date: "6/9/2020"
+output: html_document
+---
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+## About the Data Set
+A short extract from the web source:
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+
+## Data Processing
+Setting the working directory and the required libraries.
+
+```{r setup, include=FALSE}
+#Read data sets
+library(knitr)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(caret)
+
+library(RColorBrewer)
+library(gbm)
+
+```
+### Loading the Data
+```{r}
+TrainData <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),header=TRUE)
+dim(TrainData)
+ValidData <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),header=TRUE)
+dim(ValidData)
+
+str(TrainData)
+```
+### Data Cleaning
+The training dataset has 19622 observations, and 160 variables. Some of them contains many NA’s or empty values.
+In order to get a clean data, we will remove those columns that have at least 90% of this kind of observations. We can also get rid of the first variables, as they contain ID and timestamp information that are not necessary to build the model.
+```{r}
+ # Removing NA's, empty values, and unnecesary variables in the Trainning dataset.
+EmptyCols <- which(colSums(is.na(TrainData) |TrainData=="")>0.9*dim(TrainData)[1]) 
+TrainDataClean <- TrainData[,-EmptyCols]
+TrainDataClean <- TrainDataClean[,-c(1:7)]
+dim(TrainDataClean)
+
+ # Removing NA's, empty values in the Test dataset.
+EmptyCols <- which(colSums(is.na(ValidData) |ValidData=="")>0.9*dim(ValidData)[1]) 
+ValidDataClean <- ValidData[,-EmptyCols]
+ValidDataClean <- ValidDataClean[,-1]
+dim(ValidDataClean)
+```
+### Low variation data exclusion
+Some variables may not contain significant variation in their data. This condition makes them either useless for machine learning, since its presence does not indicate a certain class, or can even lead to overfitting.
+```{r}
+ # Low variation data exclusion from the TrainData Dataset
+NZV <- nearZeroVar(TrainDataClean)
+NZV
+```
+Acording to this, all the current variables report some variation. No more variables need to be removed from the training dataset.
+
+### Data Partitioning for prediction
+Here, we prepare the data for prediction by splitting the training data into 70% as train data and 30% as test data. This splitting will serve to test the model accuracy.
+```{r}
+set.seed(12345) 
+inTrain <- createDataPartition(TrainDataClean$classe, p = 0.7, list = FALSE)
+TrainData <- TrainDataClean[inTrain, ]
+TestData <- TrainDataClean[-inTrain, ]
+dim(TrainData)
+```
+After cleaning, the new training data set has only 53 columns.
+The validation data ValidDataClean remains the same, as it will be used later to test the predictive model on the 20 cases.
+
+## Exploratoy Data Analysis
+We can take a look into our data and explore the correlations between all the variables before modeling.
+```{r}
+corMatrix <- cor(TrainData[, -53])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0),mar = c(1, 1, 1, 1), title = "Training Dataset Correlogram")
+```
+
+All the correlations have a darker tone of blue if it’s closer to 1, and a darker tone of red when it’s closer to -1, which means a stronger relationshipin in both cases.
+```{r}
+# Count the number of variables that are highly correlated with another one
+M <- abs(cor(TrainData[,-53])); diag(M) <- 0
+M <- which(M > 0.8, arr.ind = T)
+M <- dim(M)[1]
+M
+```
